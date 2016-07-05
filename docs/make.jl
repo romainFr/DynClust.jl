@@ -1,0 +1,3 @@
+using Documenter, DynClust
+
+makedocs()
