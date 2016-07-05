@@ -11,6 +11,14 @@
 
 ## Functions
 
+<a id='DynClust.runDenoising' href='#DynClust.runDenoising'>#</a>
+**`DynClust.runDenoising`** &mdash; *Function*.
 
-'''@docs runDenoising(dataArray,dataMask,dataVar,depth=1,alpha=0.05,maskSize=nothing) '''
+
+
+```
+runDenoising(dataArray,dataMask,dataVar,depth=1,alpha=0.05,maskSize=nothing)
+```
+
+Runs the denoising step.
 
