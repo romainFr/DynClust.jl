@@ -1,3 +1,10 @@
+"""
+
+    runDenoising(dataArray,dataMask,dataVar,depth=1,alpha=0.05,maskSize=nothing)
+
+
+Runs the denoising step.
+"""
 function runDenoising(dataArray,dataMask,dataVar,depth=1,alpha=0.05,maskSize=nothing)
     ballSize = cumsum([1;4;8;16;36;92;212;477])
 
