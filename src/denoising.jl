@@ -80,7 +80,7 @@ function runDenoising(dataArray,dataMask,dataVar,alpha=0.05,maskSize=nothing)
         ## Find the neighboors of the current voxel pixIdx build the mask hypercube around pixIdx
         println(pixIdx," voxels out of ",nvox)
         pixInd = dataMaskInd[pixIdx]
-        dCo = dataCoord[pixInd,:].'
+        dCo = dataCoord[pixInd:pixInd,:].'
         inf = broadcast(max,dCo-maskSize,1)
         sup = min([coord...],dCo+maskSize)
         mask = IntSet(arrCoord[map((x,y) -> x:y,inf,sup)...])
