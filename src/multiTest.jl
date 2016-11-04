@@ -6,7 +6,8 @@ function multitestH0(projMatrix,dataVar,thrs::Void)
     pval = zeros(nc)
     for (inds,inds2) in zip(inds[1:end-1],inds[2:end]-1)
         norm2proj = squeeze(sumabs2(projMatrix[:,inds:inds2],2),2)
-    @inbounds   broadcast!(max,pval,pval,cdf(Chisq(inds),norm2proj))
+        #   @inbounds   broadcast!(max,pval,pval,cdf(Chisq(inds),norm2proj))
+        @inbounds   pval = max(pval,cdf(Chisq(inds),norm2proj))
     end
     return((1-pval)[:])
 end
@@ -19,7 +20,8 @@ function multitestH0(projMatrix,dataVar,thrs::Array{Float64,1})
     test = trues(nc)
     for (inds,inds2,i) in zip(inds[1:end-1],inds[2:end]-1,collect(1:length(inds)-1))
         norm2proj = squeeze(sumabs2(projMatrix[:,inds:inds2],2),2)
-    @inbounds   broadcast!(&,test,test,norm2proj.<=thrs[i])
+        # @inbounds   broadcast!(&,test,test,norm2proj.<=thrs[i])
+        @inbounds test = test & (norm2proj.<=thrs[i])
     end
     return(test[:])
 end
