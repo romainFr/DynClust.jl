@@ -8,10 +8,11 @@ Runs the denoising step.
 function runDenoising(dataArray,dataMask,dataVar,alpha=0.05,maskSize=nothing)
     ballSize = cumsum([1;4;8;16;36;92;212;477])
 
-    dim = size(dataArray)
+    #dim = size(dataArray)
     ndim = ndims(dataArray)
-    ntime = dim[ndim]
-    coord = dim[1:(ndim-1)]
+    ntime = size(dataArray,ndim)
+    #coord = dim[1:(ndim-1)]
+    coord = size(dataArray)[1:ndim-1]
     fullLength = prod(coord)
     dataMaskInd = find(dataMask)
     nvox = length(dataMaskInd)
@@ -80,8 +81,10 @@ function runDenoising(dataArray,dataMask,dataVar,alpha=0.05,maskSize=nothing)
         ## Find the neighboors of the current voxel pixIdx build the mask hypercube around pixIdx
         println(pixIdx," voxels out of ",nvox)
         pixInd = dataMaskInd[pixIdx]
-        dCo = dataCoord[pixInd:pixInd,:].'
-        inf = broadcast(max,dCo-maskSize,1)
+        #dCo = dataCoord[pixInd:pixInd,:].'
+        dCo = dataCoord[pixInd,:]
+        #inf = broadcast(max,dCo-maskSize,1)
+        inf = max(dCo-maskSize,1)
         sup = min([coord...],dCo+maskSize)
         mask = IntSet(arrCoord[map((x,y) -> x:y,inf,sup)...])
         intersect!(mask,IntSet(dataMaskInd))
