@@ -8,11 +8,11 @@ Runs the denoising step.
 function runDenoising(dataArray,dataMask,dataVar,alpha=0.05,maskSize=nothing)
     ballSize = cumsum([1;4;8;16;36;92;212;477])
 
-    #dim = size(dataArray)
+    dim = size(dataArray)
     ndim = ndims(dataArray)
-    ntime = size(dataArray,ndim)
-    #coord = dim[1:(ndim-1)]
-    coord = size(dataArray)[1:ndim-1]
+    ntime = dim[ndim]
+    coord = dim[1:(ndim-1)]
+    #coord = size(dataArray)[1:ndim-1]
     fullLength = prod(coord)
     dataMaskInd = find(dataMask)
     nvox = length(dataMaskInd)
