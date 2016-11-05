@@ -3,6 +3,7 @@ __precompile__(true)
 module DynClust
 using StatsBase
 using Distributions
+using Images
 
 
 include("utilityFunctions.jl")
