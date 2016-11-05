@@ -79,17 +79,18 @@ function runDenoising(dataArray,dataMask,dataVar,alpha=0.05,maskSize=nothing)
     ### Analysis
     resVisited = pmap(1:nvox) do pixIdx
         ## Find the neighboors of the current voxel pixIdx build the mask hypercube around pixIdx
-        #println(pixIdx," voxels out of ",nvox)
+        println(pixIdx," voxels out of ",nvox)
         pixInd = dataMaskInd[pixIdx]
+        #dCo = dataCoord[pixInd:pixInd,:].'
         dCo = dataCoord[pixInd,:]
+        #inf = broadcast(max,dCo-maskSize,1)
         inf = max(dCo-maskSize,1)
         sup = min([coord...],dCo+maskSize)
         mask = IntSet(arrCoord[map((x,y) -> x:y,inf,sup)...])
         intersect!(mask,IntSet(dataMaskInd))
         maskIdx = [findfirst(dataMaskInd,x) for x=mask]
         ## test in mask voxels which are homogenous with pixIdx
-        #@inbounds goodPix = multitestH0(dataProj[:,maskIdx].-dataProj[:,pixIdx],dataVar[maskIdx].+dataVar[pixIdx],thrs)[:]
-        @inbounds goodPix = multitestH0(view(dataProj,:,maskIdx).-view(dataProj,:,pixIdx),view(dataVar,maskIdx).+view(dataVar,pixIdx),thrs)
+        goodPix = multitestH0(dataProj[:,maskIdx].-dataProj[:,pixIdx],dataVar[maskIdx].+dataVar[pixIdx],thrs)[:]
         neighborsInd = collect(mask)[goodPix]
         dist = vec(sumabs2(dataCoord[neighborsInd,:].-dCo.',2))
         neighborsInd = neighborsInd[sortperm(dist)]
@@ -126,8 +127,8 @@ function runDenoising(dataArray,dataMask,dataVar,alpha=0.05,maskSize=nothing)
 
             thrs = [quantile(Chisq(i),1-quant/(kV-1)) for i=exp2(0:iter)]
             ## test time coherence
-            #@inbounds testcoh = multitestH0(iv[:,1:(kV-1)].-jvTemp,datavarIv[1:(kV-1)]+dataVarJvKv,thrs)
-            @inbounds testcoh = multitestH0(view(iv,:,1:(kV-1)).-jvTemp,view(datavarIv,1:(kV-1))+dataVarJvKv,thrs)
+            testcoh = multitestH0(iv[:,1:(kV-1)].-jvTemp,datavarIv[1:(kV-1)]+dataVarJvKv,thrs)
+
             ## if no time coherence with previous estimates
             if !all(testcoh)
                 kV = kV-1
