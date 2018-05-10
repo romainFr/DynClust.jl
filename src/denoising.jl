@@ -1,3 +1,5 @@
+runDenoising(dataArray,dataMask,dataVar,alpha=0.05,maskSize=nothing)=runDenoising(CPU1(),dataArray,dataMask,dataVar,alpha,maskSize)
+
 """
 
     runDenoising(dataArray,dataMask,dataVar,alpha=0.05,maskSize=nothing)
@@ -5,7 +7,7 @@
 
 Runs the denoising step.
 """
-function runDenoising(dataArray,dataMask,dataVar,alpha=0.05,maskSize=nothing)
+function runDenoising(resource::CPU1,dataArray,dataMask,dataVar,alpha=0.05,maskSize=nothing)
     ballSize = cumsum([1;4;8;16;36;92;212;477])
 
     dim = size(dataArray)
@@ -21,12 +23,11 @@ function runDenoising(dataArray,dataMask,dataVar,alpha=0.05,maskSize=nothing)
     Dmax = exp2(iter)
     from = round(Int,exp2(iter+1))
     quant = alpha/(iter+1)
-    thrs = [quantile(Chisq(i),1-quant) for i=exp2(0:iter)]
-
-
+    thrs = [quantile.(Chisq(i),1-quant) for i=exp2.(0:(iter))]
+    
     if maskSize==nothing
         p = (1000/fullLength)^(1/length(coord))
-        maskSize =ceil(Integer,p.*[coord...])
+        maskSize =ceil.(Integer,p.*[coord...])
         println("Mask size : $maskSize")
     elseif maskSize=="full"
         maskSize = [coord...]
@@ -34,10 +35,10 @@ function runDenoising(dataArray,dataMask,dataVar,alpha=0.05,maskSize=nothing)
 
 
     ### Define the projection matrix
-    dataProj = Array(Float64,(from-1,nvox))
+    dataProj = Array{Float64}((from-1,nvox))
     ## Inialize with the finest partition
     ## locations of time indexes in the finest partition
-    loc = ceil(Integer,collect(1:ntime)*Dmax/ntime)
+    loc = ceil.(Integer,collect(1:ntime)*Dmax/ntime)
     ## lengths of the finest partition intervals // returned as a vector
     num = counts(loc,maximum(loc))
     ## storage locations
@@ -45,7 +46,7 @@ function runDenoising(dataArray,dataMask,dataVar,alpha=0.05,maskSize=nothing)
     from = to-length(num)+1
     ## projections
     for i=1:nvox
-        dataProj[from:to,i]=counts(loc,maximum(loc),WeightVec(dataArray[:,i]))
+        dataProj[from:to,i]=counts(loc,maximum(loc),Weights(dataArray[:,i]))
     end
 
     ## loop from finer to thicker partitions
@@ -84,12 +85,13 @@ function runDenoising(dataArray,dataMask,dataVar,alpha=0.05,maskSize=nothing)
         #dCo = dataCoord[pixInd:pixInd,:].'
         dCo = dataCoord[pixInd,:]
         #inf = broadcast(max,dCo-maskSize,1)
-        inf = max(dCo-maskSize,1)
+        inf = max.(dCo-maskSize,1)
         sup = min([coord...],dCo+maskSize)
         mask = IntSet(arrCoord[map((x,y) -> x:y,inf,sup)...])
         intersect!(mask,IntSet(dataMaskInd))
         maskIdx = [findfirst(dataMaskInd,x) for x=mask]
         ## test in mask voxels which are homogenous with pixIdx
+        println(length(thrs))
         goodPix = multitestH0(dataProj[:,maskIdx].-dataProj[:,pixIdx],dataVar[maskIdx].+dataVar[pixIdx],thrs)[:]
         neighborsInd = collect(mask)[goodPix]
         dist = vec(sumabs2(dataCoord[neighborsInd,:].-dCo.',2))
@@ -108,9 +110,9 @@ function runDenoising(dataArray,dataMask,dataVar,alpha=0.05,maskSize=nothing)
         ## Iv.neighb is a list of the neighbors in each ball
         #Iv.neighb <- list()
         ## Iv is the matrix of the projection estimates build over the successive balls
-        iv = Array(Float64,(nproj,nV))
+        iv = Array{Float64}((nproj,nV))
         ## data.varIv vector of the associated variances
-        datavarIv = Array(Float64,nV)
+        datavarIv = Array{Float64}(nV)
 
         ## Initialize
         limits = kV = 1
@@ -125,7 +127,7 @@ function runDenoising(dataArray,dataMask,dataVar,alpha=0.05,maskSize=nothing)
             dataVarJvKv = mean(dataVar[ringIdx])/length(ringIdx)
             ## test thresholds with Bonferroni correction adapted to both partition number and interior balls
 
-            thrs = [quantile(Chisq(i),1-quant/(kV-1)) for i=exp2(0:iter)]
+            thrs = [quantile(Chisq(i),1-quant/(kV-1)) for i=exp2.(0:iter)]
             ## test time coherence
             testcoh = multitestH0(iv[:,1:(kV-1)].-jvTemp,datavarIv[1:(kV-1)]+dataVarJvKv,thrs)
 

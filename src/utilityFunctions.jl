@@ -10,7 +10,9 @@ function doFDR(pvalues,FDR=0.1)
     H0
 end
 
-function getChildren(pixIdx,infoDen,dataProj,dataVar,thrs,toCluster)
+getChildren(pixIdx,infoDen,dataProj,dataVar,thrs,toCluster) = getChildren(CPU1(),pixIdx,infoDen,dataProj,dataVar,thrs,toCluster)
+
+function getChildren(resource::CPU1,pixIdx,infoDen,dataProj,dataVar,thrs,toCluster)
 
     if (length(infoDen[pixIdx]) == 0)
         return nothing
@@ -44,10 +46,12 @@ function getChildren(pixIdx,infoDen,dataProj,dataVar,thrs,toCluster)
 end
 
 function getActive(indexes,toCluster)
-    indexes[toCluster[indexes] .==1]
+    indexes[toCluster[indexes].==1]
 end
 
-function checkClusterNew(center,centClusts,clusterDict,dataVar,quant,iter;pvalueMax=false,useFdr=true)
+checkClusterNew(center,centClusts,clusterDict,dataVar,quant,iter;pvalueMax=false,useFdr=true)=checkClusterNew(CPU1(),center,centClusts,clusterDict,dataVar,quant,iter,pvalueMax=pvalueMax,useFdr=useFdr)
+
+function checkClusterNew(resource::CPU1,center,centClusts,clusterDict,dataVar,quant,iter;pvalueMax=false,useFdr=true)
     ## test new potential center against the centers from already build clusters
     ## if pvalue.max=T returns the index of the cluster giving the largest pvalue
     ## if pvalue.max=F returns the indexes of the clusters with pvalue corresponding to H0 (default)
@@ -64,9 +68,9 @@ function checkClusterNew(center,centClusts,clusterDict,dataVar,quant,iter;pvalue
     end
 
     centVar = mean(dataVar[centClusts])/sizeto
-    clusterCenters = Array(Float64,(length(center),length(clusterDict)))
-    clusterVar = Array(Float64,length(clusterDict))
-    clusterSizes = Array(Float64,length(clusterDict))
+    clusterCenters = Array{Float64}((length(center),length(clusterDict)))
+    clusterVar = Array{Float64}(length(clusterDict))
+    clusterSizes = Array{Float64}(length(clusterDict))
     for (i,x) in enumerate(clusterDict)
         clusterCenters[:,i] = x["center"]
         clusterSizes[i] = length(x["cluster"])
@@ -91,7 +95,9 @@ function checkClusterNew(center,centClusts,clusterDict,dataVar,quant,iter;pvalue
     end
 end
 
-function robustMean(children,dataProj,dataVar)
+robustMean(children,dataProj,dataVar)=robustMean(CPU1(),children,dataProj,dataVar)
+
+function robustMean(resource::CPU1,children,dataProj,dataVar)
     ## Build a robust 1-mean for a children list
     ## Initialize with the dynamic average over all children
     childProj = dataProj[:,children]
@@ -107,6 +113,7 @@ function robustMean(children,dataProj,dataVar)
         centerNew = mean(dataProj[:,cluster],2)
         ## test coherence between cluster center and children dynamics
         pvalues = multitestH0(childProj.-centerNew,dataVar[children].+mean(dataVar[cluster])/length(cluster),nothing)
+        println(pvalues)
         ## the new cluster
         cluster = children[doFDR(pvalues)]
         ## check if the cluster center has changed or not

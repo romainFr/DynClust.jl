@@ -1,4 +1,6 @@
-function runClustering(dataArray,dataMask,denois;minSize=1,alpha=0.05,doChildrenFirst=false)
+runClustering(dataArray,dataMask,denois;minSize=1,alpha=0.05,doChildrenFirst=false)=runClustering(CPU1(),dataArray,dataMask,denois,minSize=minSize,alpha=alpha,doChildrenFirst=doChildrenFirst)
+
+function runClustering(resource::CPU1,dataArray,dataMask,denois;minSize=1,alpha=0.05,doChildrenFirst=false)
 
     dim = size(dataArray)
     ndim = ndims(dataArray)
@@ -154,7 +156,7 @@ function runClustering(dataArray,dataMask,denois;minSize=1,alpha=0.05,doChildren
 end
 
 function getClusteringResults(dataArray,denois,clust)
-    clustMap = 0*Array(Int64,size(dataArray)[1:(end-1)])
+    clustMap = 0*Array{Int64}(size(dataArray)[1:(end-1)])
 
     for i in 1:length(clust["clusters"])
         for j in clust["clusters"][i]
