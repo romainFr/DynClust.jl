@@ -59,14 +59,14 @@ function runDenoising(resource::CPU1,dataArray,dataMask,dataVar,alpha=0.05,maskS
         ## new projections
         dataProj[fromNew:toNew,:] = dataProj[from:2:to,:]+dataProj[from+1:2:to,:]
         ## normalize old projections
-        dataProj[from:to,:] = dataProj[from:to,:]./sqrt(num)
+        dataProj[from:to,:] = dataProj[from:to,:]./sqrt.(num)
         ## update
         num = numNew
         to = toNew
         from = fromNew
     end
     ## last normalization is not done in the loop
-    dataProj[1,:] = dataProj[1,:]./sqrt(num)
+    dataProj[1,:] = dataProj[1,:]./sqrt.(num)
 
 
     ## ########################### Build geometry #############################
