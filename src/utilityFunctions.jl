@@ -1,7 +1,7 @@
 function doFDR(pvalues,FDR=0.1)
     tri = sortperm(pvalues)
     m = length(pvalues)
-    iBH = find([0;pvalues[tri]].<= collect(0:m)/m*FDR)
+    iBH = findall([0;pvalues[tri]].<= collect(0:m)/m*FDR)
     iBH = iBH[length(iBH)] # the last
     if (iBH<=m)
         H0 = tri[iBH:m]
@@ -68,9 +68,9 @@ function checkClusterNew(resource::CPU1,center,centClusts,clusterDict,dataVar,qu
     end
 
     centVar = mean(dataVar[centClusts])/sizeto
-    clusterCenters = Array{Float64}((length(center),length(clusterDict)))
-    clusterVar = Array{Float64}(length(clusterDict))
-    clusterSizes = Array{Float64}(length(clusterDict))
+    clusterCenters = Array{Float64}(undef,(length(center),length(clusterDict)))
+    clusterVar = Array{Float64}(undef,length(clusterDict))
+    clusterSizes = Array{Float64}(undef,length(clusterDict))
     for (i,x) in enumerate(clusterDict)
         clusterCenters[:,i] = x["center"]
         clusterSizes[i] = length(x["cluster"])
@@ -83,11 +83,11 @@ function checkClusterNew(resource::CPU1,center,centClusts,clusterDict,dataVar,qu
     else
         thrs = [quantile(Chisq(i),1-quant/length(clusterDict)) for i=exp2(0:iter)]
     end
-    tmp = multitestH0(clusterCenters.-center[:],clusterVar+centVar,thrs)
+    tmp = multitestH0(clusterCenters.-center[:],clusterVar .+ centVar,thrs)
     ## return pvalues if thrs==NULL and booleans otherwise
 
     if pvalueMax
-        return(indmax(tmp))
+        return(argmax(tmp))
     elseif useFdr
         return(doFDR(tmp))
     else
@@ -110,14 +110,14 @@ function robustMean(resource::CPU1,children,dataProj,dataVar)
     while (cont && i<iMax)
         i = i+1
         ## compute the new cluster center
-        centerNew = mean(dataProj[:,cluster],2)
+        centerNew = mean(dataProj[:,cluster],dims=2)
         ## test coherence between cluster center and children dynamics
         pvalues = multitestH0(childProj.-centerNew,dataVar[children].+mean(dataVar[cluster])/length(cluster),nothing)
-        println(pvalues)
+        #println(pvalues)
         ## the new cluster
         cluster = children[doFDR(pvalues)]
         ## check if the cluster center has changed or not
-        cont = (length(cluster)>0) && (mean((centerNew-center).^2) > 0.0001)
+        cont = (length(cluster)>0) && (mean((centerNew .- center).^2) > 0.0001)
         ## update
         center = centerNew
     end

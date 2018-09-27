@@ -16,14 +16,15 @@ function runDenoising(resource::CPU1,dataArray,dataMask,dataVar,alpha=0.05,maskS
     coord = dim[1:(ndim-1)]
     #coord = size(dataArray)[1:ndim-1]
     fullLength = prod(coord)
-    dataMaskInd = find(dataMask)
+    dataMaskInd = (LinearIndices(dataMask))[findall(dataMask)]
     nvox = length(dataMaskInd)
-    dataArray = (reshape(dataArray,(fullLength,ntime))[dataMaskInd,:]).'
+    dataArray = copy(transpose(reshape(dataArray,(fullLength,ntime))[dataMaskInd,:]))
     iter = floor(Integer,log2(ntime))-1
     Dmax = exp2(iter)
     from = round(Int,exp2(iter+1))
     quant = alpha/(iter+1)
-    thrs = [quantile.(Chisq(i),1-quant) for i=exp2.(0:(iter))]
+    realIter = floor(Integer,log2(from-1))-1
+    thrs = [quantile.(Chisq(i),1-quant) for i=exp2.(0:(realIter-1))]
     
     if maskSize==nothing
         p = (1000/fullLength)^(1/length(coord))
@@ -35,7 +36,7 @@ function runDenoising(resource::CPU1,dataArray,dataMask,dataVar,alpha=0.05,maskS
 
 
     ### Define the projection matrix
-    dataProj = Array{Float64}((from-1,nvox))
+    dataProj = Array{Float64}(undef,(from-1,nvox))
     ## Inialize with the finest partition
     ## locations of time indexes in the finest partition
     loc = ceil.(Integer,collect(1:ntime)*Dmax/ntime)
@@ -59,47 +60,56 @@ function runDenoising(resource::CPU1,dataArray,dataMask,dataVar,alpha=0.05,maskS
         ## new projections
         dataProj[fromNew:toNew,:] = dataProj[from:2:to,:]+dataProj[from+1:2:to,:]
         ## normalize old projections
-        dataProj[from:to,:] = dataProj[from:to,:]./sqrt(num)
+        dataProj[from:to,:] = dataProj[from:to,:]./sqrt.(num)
         ## update
         num = numNew
         to = toNew
         from = fromNew
     end
     ## last normalization is not done in the loop
-    dataProj[1,:] = dataProj[1,:]./sqrt(num)
+    dataProj[1,:] = dataProj[1,:]./sqrt.(num)
 
 
     ## ########################### Build geometry #############################
     ## matrix of all the 3D coordinates at column indexes of data.matrix corresponds to row indexes in dataCoord
-    dataCoord = ind2sub(coord,1:fullLength)
-    dataCoord = reshape(vcat(dataCoord...),fullLength,ndim-1)
-    arrCoord = reshape(1:fullLength,coord)
+    #dataCoord = ind2sub(coord,1:fullLength)
+    #dataCoord = reshape(vcat(dataCoord...),fullLength,ndim-1)
+
+    dataCoord = CartesianIndices(coord)
+    idOne = one(dataCoord[1])
+    idBox = CartesianIndex(maskSize...)
+    idMax = dataCoord[end]
+    #dataCoord = reshape(dataCoord,fullLength,ndim-1)
+    #arrCoord = reshape(1:fullLength,coord)
+    arrCoord = LinearIndices(coord)
     ## transforms the data into a matrix of projections
     nproj = size(dataProj,1)
 
     ### Analysis
+    println(nvox," voxels")
+    #prog = Progress(nvox,1)
     resVisited = pmap(1:nvox) do pixIdx
         ## Find the neighboors of the current voxel pixIdx build the mask hypercube around pixIdx
-        println(pixIdx," voxels out of ",nvox)
+        @info "$(pixIdx) voxels out of $(nvox)"
         pixInd = dataMaskInd[pixIdx]
-        #dCo = dataCoord[pixInd:pixInd,:].'
-        dCo = dataCoord[pixInd,:]
-        #inf = broadcast(max,dCo-maskSize,1)
-        inf = max.(dCo-maskSize,1)
-        sup = min([coord...],dCo+maskSize)
-        mask = IntSet(arrCoord[map((x,y) -> x:y,inf,sup)...])
-        intersect!(mask,IntSet(dataMaskInd))
-        maskIdx = [findfirst(dataMaskInd,x) for x=mask]
+        #dCo = dataCoord[pixInd,:]
+        dCo = dataCoord[pixInd]
+        #inf = max.(dCo-maskSize,idOne)
+        inf = max(dCo-idBox,idOne)
+        sup = min(idMax,dCo+idBox)
+        #mask = IntSet(arrCoord[map((x,y) -> x:y,inf,sup)...])
+        mask = BitSet(arrCoord[UnitRange.(inf.I,sup.I)...])
+        intersect!(mask,BitSet(dataMaskInd))
+        maskIdx = [findfirst(isequal(x),dataMaskInd) for x=mask]
         ## test in mask voxels which are homogenous with pixIdx
-        println(length(thrs))
         goodPix = multitestH0(dataProj[:,maskIdx].-dataProj[:,pixIdx],dataVar[maskIdx].+dataVar[pixIdx],thrs)[:]
         neighborsInd = collect(mask)[goodPix]
-        dist = vec(sumabs2(dataCoord[neighborsInd,:].-dCo.',2))
+        dist = vec([sum(abs2.(c.I)) for c in dataCoord[neighborsInd] .- dCo])
         neighborsInd = neighborsInd[sortperm(dist)]
 
 
         neighborsIdx = map(neighborsInd) do x
-            findfirst(dataMaskInd,x)
+            findfirst(isequal(x),dataMaskInd)
         end
         ## projection of the dynamics of the neighbors
         neighborsProj = dataProj[:,neighborsIdx]
@@ -110,9 +120,9 @@ function runDenoising(resource::CPU1,dataArray,dataMask,dataVar,alpha=0.05,maskS
         ## Iv.neighb is a list of the neighbors in each ball
         #Iv.neighb <- list()
         ## Iv is the matrix of the projection estimates build over the successive balls
-        iv = Array{Float64}((nproj,nV))
+        iv = Array{Float64}(undef,(nproj,nV))
         ## data.varIv vector of the associated variances
-        datavarIv = Array{Float64}(nV)
+        datavarIv = Array{Float64}(undef,nV)
 
         ## Initialize
         limits = kV = 1
@@ -123,13 +133,13 @@ function runDenoising(resource::CPU1,dataArray,dataMask,dataVar,alpha=0.05,maskS
             kV+=1
             limitsNew=ballSize[kV]
             ringIdx=(limits+1):limitsNew
-            jvTemp=mean(neighborsProj[:,ringIdx],2)
+            jvTemp=mean(neighborsProj[:,ringIdx],dims=2)
             dataVarJvKv = mean(dataVar[ringIdx])/length(ringIdx)
             ## test thresholds with Bonferroni correction adapted to both partition number and interior balls
 
-            thrs = [quantile(Chisq(i),1-quant/(kV-1)) for i=exp2.(0:iter)]
+            thrs = [quantile(Chisq(i),1-quant/(kV-1)) for i=exp2.(0:(realIter-1))]
             ## test time coherence
-            testcoh = multitestH0(iv[:,1:(kV-1)].-jvTemp,datavarIv[1:(kV-1)]+dataVarJvKv,thrs)
+            testcoh = multitestH0(iv[:,1:(kV-1)] .- jvTemp,datavarIv[1:(kV-1)] .+ dataVarJvKv,thrs)
 
             ## if no time coherence with previous estimates
             if !all(testcoh)
@@ -138,12 +148,12 @@ function runDenoising(resource::CPU1,dataArray,dataMask,dataVar,alpha=0.05,maskS
             end
             ## otherwise update projection estimates
             limits=limitsNew
-            iv[:,kV] = mean(neighborsProj[:,1:limits],2)
+            iv[:,kV] = mean(neighborsProj[:,1:limits],dims=2)
             datavarIv[kV] = dataVar[pixIdx]/limits
         end
         ## the denoised dynamics rescaled
 
-        ix = mean(dataArray[:,neighborsIdx[1:limits]],2)
+        ix = mean(dataArray[:,neighborsIdx[1:limits]],dims=2)
 
         #### returns a Dict containing:
         #### 'Vx' a vector containing all the neighbors indexes used to build the denoised dynamic
@@ -151,7 +161,7 @@ function runDenoising(resource::CPU1,dataArray,dataMask,dataVar,alpha=0.05,maskS
         #### 'Px' a vector containing the denoised projection
         #### 'Lx' a matrix containing the original coordinates of the neighbors in data.array
         #### 'Cx' a vector containing the original coordinates of the center
-        Dict("Lx" => vec(dataCoord[neighborsInd[1:limits],:]),"Cx"=>vec(dataCoord[pixInd,:]),"Px" => vec(iv[:,kV]),"Ix" =>vec(ix),"Vx"=>vec(neighborsIdx[1:limits]))
+        Dict("Lx" => dataCoord[neighborsInd[1:limits]],"Cx"=>dataCoord[pixInd],"Px" => vec(iv[:,kV]),"Ix" =>vec(ix),"Vx"=>vec(neighborsIdx[1:limits]))
     end
     Dict("infoDen" => resVisited,"dataProj" => dataProj, "var"=> dataVar)
 end
