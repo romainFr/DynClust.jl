@@ -1,4 +1,4 @@
-runDenoising(dataArray,dataMask,dataVar,alpha=0.05,maskSize=nothing)=runDenoising(CPU1(),dataArray,dataMask,dataVar,alpha,maskSize)
+runDenoising(dataArray,dataMask,dataVar,alpha=0.05,maskSize=nothing;connectedMask=false)=runDenoising(CPU1(),dataArray,dataMask,dataVar,alpha,maskSize,connectedMask)
 
 """
 
@@ -7,7 +7,7 @@ runDenoising(dataArray,dataMask,dataVar,alpha=0.05,maskSize=nothing)=runDenoisin
 
 Runs the denoising step.
 """
-function runDenoising(resource::CPU1,dataArray,dataMask,dataVar,alpha=0.05,maskSize=nothing)
+function runDenoising(resource::CPU1,dataArray,dataMask,dataVar,alpha=0.05,maskSize=nothing,connectedMask=false)
     ballSize = cumsum([1;4;8;16;36;92;212;477])
 
     dim = size(dataArray)
@@ -72,10 +72,9 @@ function runDenoising(resource::CPU1,dataArray,dataMask,dataVar,alpha=0.05,maskS
 
     ## ########################### Build geometry #############################
     ## matrix of all the 3D coordinates at column indexes of data.matrix corresponds to row indexes in dataCoord
-    #dataCoord = ind2sub(coord,1:fullLength)
-    #dataCoord = reshape(vcat(dataCoord...),fullLength,ndim-1)
-
+   
     dataCoord = CartesianIndices(coord)
+    dataMask = dataMask[dataCoord]
     idOne = one(dataCoord[1])
     idBox = CartesianIndex(maskSize...)
     idMax = dataCoord[end]
@@ -89,19 +88,31 @@ function runDenoising(resource::CPU1,dataArray,dataMask,dataVar,alpha=0.05,maskS
     println(nvox," voxels")
     #prog = Progress(nvox,1)
     resVisited = pmap(1:nvox) do pixIdx
-        ## Find the neighboors of the current voxel pixIdx build the mask hypercube around pixIdx
+        ## Find the neighbors of the current voxel pixIdx
         @info "$(pixIdx) voxels out of $(nvox)"
         pixInd = dataMaskInd[pixIdx]
-        #dCo = dataCoord[pixInd,:]
+       
         dCo = dataCoord[pixInd]
-        #inf = max.(dCo-maskSize,idOne)
+      
         inf = max(dCo-idBox,idOne)
         sup = min(idMax,dCo+idBox)
-        #mask = IntSet(arrCoord[map((x,y) -> x:y,inf,sup)...])
-        mask = BitSet(arrCoord[UnitRange.(inf.I,sup.I)...])
-        intersect!(mask,BitSet(dataMaskInd))
+        #mask = BitSet(arrCoord[UnitRange.(inf.I,sup.I)...])
+        
+        mask = dataMask[UnitRange.(inf.I,sup.I)...]
+        if connectedMask
+            mask = label_components(mask)
+            mask = OffsetArray(mask,UnitRange.((inf-dCo).I,(sup-dCo).I))
+            mask = (mask .== mask[zero(dCo)])
+        else
+            mask = OffsetArray(mask,UnitRange.((inf-dCo).I,(sup-dCo).I))
+        end
+        
+        mask = arrCoord[findall(mask) .+ dCo]
+        
+        #intersect!(mask,BitSet(dataMaskInd))
         maskIdx = [findfirst(isequal(x),dataMaskInd) for x=mask]
-        ## test in mask voxels which are homogenous with pixIdx
+
+        
         goodPix = multitestH0(dataProj[:,maskIdx].-dataProj[:,pixIdx],dataVar[maskIdx].+dataVar[pixIdx],thrs)[:]
         neighborsInd = collect(mask)[goodPix]
         dist = vec([sum(abs2.(c.I)) for c in dataCoord[neighborsInd] .- dCo])
@@ -117,11 +128,10 @@ function runDenoising(resource::CPU1,dataArray,dataMask,dataVar,alpha=0.05,maskS
         ## Denoising procedure
         ## number of possible balls
         nV = sum(ballSize.<=length(neighborsIdx))
-        ## Iv.neighb is a list of the neighbors in each ball
-        #Iv.neighb <- list()
+      
         ## Iv is the matrix of the projection estimates build over the successive balls
         iv = Array{Float64}(undef,(nproj,nV))
-        ## data.varIv vector of the associated variances
+        ## datavarIv vector of the associated variances
         datavarIv = Array{Float64}(undef,nV)
 
         ## Initialize
@@ -177,3 +187,70 @@ function getDenoisingResults(dataArray,denoisDicArr)
     end
     dataArray
 end
+
+
+function makeDataProj(dataArray,dataMask)
+    dim = size(dataArray)
+    ndim = ndims(dataArray)
+    ntime = dim[ndim]
+    iter = floor(Integer,log2(ntime))-1
+    Dmax = exp2(iter)
+    from = round(Int,exp2(iter+1))
+    coord = dim[1:(ndim-1)]
+    fullLength = prod(coord)
+    dataMaskInd = (LinearIndices(dataMask))[findall(dataMask)]
+    nvox = length(dataMaskInd)
+    dataArray = copy(transpose(reshape(dataArray,(fullLength,ntime))[dataMaskInd,:]))
+   
+     ### Define the projection matrix
+    dataProj = Array{Float64}(undef,(from-1,nvox))
+    ## Inialize with the finest partition
+    ## locations of time indexes in the finest partition
+    loc = ceil.(Integer,collect(1:ntime)*Dmax/ntime)
+    ## lengths of the finest partition intervals // returned as a vector
+    num = counts(loc,maximum(loc))
+    ## storage locations
+    to = from-1
+    from = to-length(num)+1
+    ## projections
+    for i=1:nvox
+        dataProj[from:to,i]=counts(loc,maximum(loc),Weights(dataArray[:,i]))
+    end
+
+    ## loop from finer to thicker partitions
+    for idx=(iter-1):-1:0
+        ## new lengths of the partition intervals
+        numNew = num[1:2:length(num)]+num[2:2:length(num)]
+        ## new storage locations
+        toNew = from-1
+        fromNew = toNew-length(numNew)+1
+        ## new projections
+        dataProj[fromNew:toNew,:] = dataProj[from:2:to,:]+dataProj[from+1:2:to,:]
+        ## normalize old projections
+        dataProj[from:to,:] = dataProj[from:to,:]./sqrt.(num)
+        ## update
+        num = numNew
+        to = toNew
+        from = fromNew
+    end
+    ## last normalization is not done in the loop
+    dataProj[1,:] = dataProj[1,:]./sqrt.(num)
+    dataProj
+end
+
+
+function getDataArraySmall(dataArray,dataMask)
+    dim = size(dataArray)
+    ndim = ndims(dataArray)
+    ntime = dim[ndim]
+    iter = floor(Integer,log2(ntime))-1
+    Dmax = exp2(iter)
+    from = round(Int,exp2(iter+1))
+    coord = dim[1:(ndim-1)]
+    fullLength = prod(coord)
+    dataMaskInd = (LinearIndices(dataMask))[findall(dataMask)]
+    nvox = length(dataMaskInd)
+    dataArray = copy(transpose(reshape(dataArray,(fullLength,ntime))[dataMaskInd,:]))
+end
+
+

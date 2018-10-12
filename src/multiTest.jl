@@ -1,5 +1,5 @@
 function multitestH0(projMatrix::Array{Float64,2},dataVar::Array{Float64,1},thrs::Nothing)
-    projMatrix = copy(transpose(projMatrix))./dataVar
+    projMatrix = transpose(projMatrix)./dataVar
     (nc,nr) = size(projMatrix)
     kMax = floor(Integer,log2(nr))-1
     inds = round.(Int,exp2.(0:kMax))
@@ -18,7 +18,7 @@ function multitestH0(projMatrix::Array{Float64,2},dataVar::Array{Float64,1},thrs
 end
 
 function multitestH0(projMatrix::Array{Float64},dataVar,thrs::Array{Float64,1})
-    projMatrix = copy(transpose(projMatrix))./dataVar
+    projMatrix = transpose(projMatrix)./dataVar
     (nc,nr) = size(projMatrix)
     kMax = floor(Integer,log2(nr))-1
     inds = round.(Int,exp2.(0:kMax))

@@ -165,7 +165,7 @@ function getClusteringResults(dataArray,denois,clust)
             if tmp == nothing
                 continue
             end
-      #      mid = tmp["Cx"]
+            mid = tmp["Cx"]
      #       outArray[mid,:] = clust["centers"][i]
             clustMap[mid] = i
         end
