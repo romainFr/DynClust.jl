@@ -26,7 +26,7 @@ function multitestH0(projMatrix::Array{Float64},dataVar,thrs::Array{Float64,1})
    # test = trues(nc)
     projMatrix = abs2.(projMatrix)
     cs = Array(cumsum(projMatrix,dims=2))[:,inds[2:end].-1]
-    norm2proj =hcat(cs[:,inds[2]-1],diff(cs,dims=2)).'
+    norm2proj = permutedims(hcat(cs[:,inds[2]-1],diff(cs,dims=2)))
     #@show size(cs)
     #norm2proj = diff(cs,2)
     #@show size(norm2proj)
