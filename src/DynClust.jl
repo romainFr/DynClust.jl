@@ -4,6 +4,10 @@ module DynClust
 using StatsBase
 using Distributions
 using ComputationalResources
+using Distributed
+using ProgressMeter
+using Images
+using OffsetArrays
 
 function __init__()
     # Enable `using` to load additional modules in this folder

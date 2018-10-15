@@ -13,11 +13,11 @@ function DynClust.runDenoising(resource::ArrayFireLibs,dataArray,dataMask,dataVa
     coord = dim[1:(ndim-1)]
     #coord = size(dataArray)[1:ndim-1]
     fullLength = prod(coord)
-    dataMaskInd = find(dataMask)
+    dataMaskInd = (LinearIndices(dataMask))[findall(dataMask)]
     nvox = length(dataMaskInd)
-    dataArray = (reshape(dataArray,(fullLength,ntime))[dataMaskInd,:]).'
+    dataArray = copy(transpose(reshape(dataArray,(fullLength,ntime))[dataMaskInd,:]))
     iter = floor(Integer,log2(ntime))-1
-    Dmax = exp2.(iter)
+    Dmax = exp2(iter)
     from = round(Int,exp2(iter+1))
     quant = alpha/(iter+1)
     realIter = floor(Integer,log2(from-1))-1
@@ -34,7 +34,7 @@ function DynClust.runDenoising(resource::ArrayFireLibs,dataArray,dataMask,dataVa
 
 
     ### Define the projection matrix
-    dataProj = Array{Float64}((from-1,nvox))
+    dataProj = Array{Float64}(undef,(from-1,nvox))
     ## Inialize with the finest partition
     ## locations of time indexes in the finest partition
     loc = ceil.(Integer,collect(1:ntime)*Dmax/ntime)
@@ -70,9 +70,15 @@ function DynClust.runDenoising(resource::ArrayFireLibs,dataArray,dataMask,dataVa
 
     ## ########################### Build geometry #############################
     ## matrix of all the 3D coordinates at column indexes of data.matrix corresponds to row indexes in dataCoord
-    dataCoord = ind2sub(coord,1:fullLength)
-    dataCoord = reshape(vcat(dataCoord...),fullLength,ndim-1)
-    arrCoord = reshape(1:fullLength,coord)
+    
+    dataCoord = CartesianIndices(coord)
+    idOne = one(dataCoord[1])
+    idBox = CartesianIndex(maskSize...)
+    idMax = dataCoord[end]
+    #dataCoord = reshape(dataCoord,fullLength,ndim-1)
+    #arrCoord = reshape(1:fullLength,coord)
+    arrCoord = LinearIndices(coord)
+    
     ## transforms the data into a matrix of projections
     nproj = size(dataProj,1)
 
@@ -83,22 +89,23 @@ function DynClust.runDenoising(resource::ArrayFireLibs,dataArray,dataMask,dataVa
         ## Find the neighboors of the current voxel pixIdx build the mask hypercube around pixIdx
         pixInd = dataMaskInd[pixIdx]
         #dCo = dataCoord[pixInd:pixInd,:].'
-        dCo = dataCoord[pixInd,:]
+        dCo = dataCoord[pixInd]
         #inf = broadcast(max,dCo-maskSize,1)
-        inf = max.(dCo-maskSize,1)
-        sup = min.([coord...],dCo+maskSize)
-        mask = IntSet(arrCoord[map((x,y) -> x:y,inf,sup)...])
-        intersect!(mask,IntSet(dataMaskInd))
-        maskIdx = [findfirst(dataMaskInd,x) for x=mask]
+        inf = max(dCo-idBox,idOne)
+        sup = min(idMax,dCo+idBox)
+        #mask = IntSet(arrCoord[map((x,y) -> x:y,inf,sup)...])
+        mask = BitSet(arrCoord[UnitRange.(inf.I,sup.I)...])
+        intersect!(mask,BitSet(dataMaskInd))
+        maskIdx = [findfirst(isequal(x),dataMaskInd) for x=mask]
         ## test in mask voxels which are homogenous with pixIdx       
         goodPix = multitestH0(AFArray(dataProj[:,maskIdx].-dataProj[:,pixIdx]),AFArray(dataVar[maskIdx].+dataVar[pixIdx]),thrs)[:]
         neighborsInd = collect(mask)[goodPix]
-        dist = vec(sum(abs2,dataCoord[neighborsInd,:].-dCo.',2))
+        dist = vec([sum(abs2.(c.I)) for c in dataCoord[neighborsInd] .- dCo])
         neighborsInd = neighborsInd[sortperm(dist)]
 
 
         neighborsIdx = map(neighborsInd) do x
-            findfirst(dataMaskInd,x)
+            findfirst(isequal(x),dataMaskInd)
         end
         ## projection of the dynamics of the neighbors
         neighborsProj = dataProj[:,neighborsIdx]
@@ -109,9 +116,9 @@ function DynClust.runDenoising(resource::ArrayFireLibs,dataArray,dataMask,dataVa
         ## Iv.neighb is a list of the neighbors in each ball
         #Iv.neighb <- list()
         ## Iv is the matrix of the projection estimates build over the successive balls
-        iv = Array{Float64}((nproj,nV))
+        iv = Array{Float64}(undef,(nproj,nV))
         ## data.varIv vector of the associated variances
-        datavarIv = Array{Float64}(nV)
+        datavarIv = Array{Float64}(undef,nV)
 
         ## Initialize
         limits = kV = 1
@@ -128,7 +135,7 @@ function DynClust.runDenoising(resource::ArrayFireLibs,dataArray,dataMask,dataVa
 
             thrs = [quantile(Chisq(i),1-quant/(kV-1)) for i=exp2.(0:(realIter-1))]
             ## test time coherence
-            testcoh = multitestH0(AFArray(iv[:,1:(kV-1)].-jvTemp),AFArray(datavarIv[1:(kV-1)]+dataVarJvKv),thrs)
+            testcoh = multitestH0(AFArray(iv[:,1:(kV-1)].-jvTemp),AFArray(datavarIv[1:(kV-1)] .+ dataVarJvKv),thrs)
 
             ## if no time coherence with previous estimates
             if !all(testcoh)
@@ -137,12 +144,12 @@ function DynClust.runDenoising(resource::ArrayFireLibs,dataArray,dataMask,dataVa
             end
             ## otherwise update projection estimates
             limits=limitsNew
-            iv[:,kV] = mean(neighborsProj[:,1:limits],2)
+            iv[:,kV] = mean(neighborsProj[:,1:limits],dims=2)
             datavarIv[kV] = dataVar[pixIdx]/limits
         end
         ## the denoised dynamics rescaled
 
-        ix = mean(dataArray[:,neighborsIdx[1:limits]],2)
+        ix = mean(dataArray[:,neighborsIdx[1:limits]],dims=2)
 
         #### returns a Dict containing:
         #### 'Vx' a vector containing all the neighbors indexes used to build the denoised dynamic
@@ -151,14 +158,14 @@ function DynClust.runDenoising(resource::ArrayFireLibs,dataArray,dataMask,dataVa
         #### 'Lx' a matrix containing the original coordinates of the neighbors in data.array
         #### 'Cx' a vector containing the original coordinates of the center
         next!(prog)
-        Dict("Lx" => vec(dataCoord[neighborsInd[1:limits],:]),"Cx"=>vec(dataCoord[pixInd,:]),"Px" => vec(iv[:,kV]),"Ix" =>vec(ix),"Vx"=>vec(neighborsIdx[1:limits]))
+        Dict("Lx" => vec(dataCoord[neighborsInd[1:limits]]),"Cx"=>dataCoord[pixInd],"Px" => vec(iv[:,kV]),"Ix" =>vec(ix),"Vx"=>vec(neighborsIdx[1:limits]))
     end
     Dict("infoDen" => resVisited,"dataProj" => dataProj, "var"=> dataVar)
 end
 
 
-function multitestH0(projMatrix::AFArray,dataVar,thrs::Void)
-    projMatrix = projMatrix.'./dataVar
+function multitestH0(projMatrix::AFArray,dataVar,thrs::Nothing)
+    projMatrix = copy(transpose(projMatrix))./dataVar
     kMax = floor(Integer,log2(size(projMatrix,2)))-1
     inds = round.(Int,exp2.(0:kMax))
     #pval = zeros(nc)
@@ -170,14 +177,14 @@ function multitestH0(projMatrix::AFArray,dataVar,thrs::Void)
 end
 
 function multitestH0(projMatrix::AFArray,dataVar,thrs::Array{Float64,1})
-    projMatrix = projMatrix.'./dataVar
+    projMatrix = copy(transpose(projMatrix))./dataVar
     kMax = floor(Integer,log2(size(projMatrix,2)))-1
     inds = round.(Int,exp2.(0:kMax))
     projMatrix = abs2.(projMatrix)
     cs = Array(cumsum(projMatrix,2))[:,inds[2:end].-1]
     norm2proj = hcat(cs[:,inds[2]-1],diff(cs,2)).'
     #norm2proj = diff(cs,2)
-    test = all(norm2proj.<=thrs,1)
+    test = all(norm2proj.<=thrs,dims=1)
     return(test[:])
 end
 

@@ -3,3 +3,6 @@ StatsBase
 Distributions
 ProgressMeter
 ComputationalResources
+Distributed
+Images
+OffsetArrays
